@@ -30,15 +30,3 @@ impl Display for MConfigError {
 }
 
 impl std::error::Error for MConfigError {}
-
-// impl de::Error for ConfigError {
-//     fn custom<T: fmt::Display>(msg: T) -> Self {
-//         Self::Message(msg.to_string())
-//     }
-// }
-//
-// impl ser::Error for ConfigError {
-//     fn custom<T: Display>(msg: T) -> Self {
-//         Self::Message(msg.to_string())
-//     }
-// }

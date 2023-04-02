@@ -1,25 +1,18 @@
-use std::fmt::Debug;
-use std::sync::{Arc};
+use std::sync::Arc;
 
 use mongodb::{Client, Collection};
-use mongodb::bson::{Bson, doc};
+use mongodb::bson::Bson;
 use mongodb::options::{ClientOptions, ResolverConfig};
 use serde::Deserialize;
 use serde::Serialize;
-use tokio::sync::RwLock;
 
-use crate::error::MConfigError;
+use handler::MConfigHandler;
 
 pub mod error;
+pub mod handler;
 
 pub struct MConfigClient {
     collection: Collection<Bson>,
-}
-
-#[derive(Debug, Deserialize, Serialize, Clone)]
-pub struct MConfigEntry<V> {
-    key: String,
-    value: V,
 }
 
 impl MConfigClient {
@@ -47,56 +40,16 @@ impl MConfigClient {
             key: key.as_ref().to_string(),
             collection: self.collection.clone_with_type(),
             value: Default::default(),
+            watcher: Default::default(),
         };
         Arc::new(handler)
-    }
-}
-
-pub struct MConfigHandler<V> {
-    key: String,
-    collection: Collection<MConfigEntry<V>>,
-    value: RwLock<Option<Arc<V>>>,
-}
-
-
-impl<V: Clone + Send + Sync + Serialize + for<'de> Deserialize<'de> + Unpin> MConfigHandler<V> {
-    pub async fn init_value(self: &Arc<MConfigHandler<V>>) -> error::Result<Arc<V>> {
-        match self.collection.find_one(doc! {"key":self.key.clone()}, None).await {
-            Ok(Some(task)) => {
-                let arc = Arc::new(task.value);
-                let mut guard = self.value.write().await;
-                *guard = Some(arc.clone());
-                Ok(arc)
-            }
-            Ok(None) => {
-                Err(MConfigError::KeyNotExists { key: self.key.clone() })
-            }
-            Err(e) => {
-                Err(MConfigError::MongodbError(e))
-            }
-        }
-    }
-
-    pub async fn get_value(self: &Arc<MConfigHandler<V>>) -> error::Result<Arc<V>> {
-        let is_inited = self.is_inited().await;
-        if is_inited {
-            self.init_value().await
-        } else {
-            let guard = self.value.read().await;
-            Ok(guard.as_ref().unwrap().clone())
-        }
-    }
-
-    async fn is_inited(self: &Arc<MConfigHandler<V>>) -> bool {
-        let guard = self.value.read().await;
-        let is_inited = guard.is_none();
-        is_inited
     }
 }
 
 #[cfg(test)]
 mod tests {
     use std::env;
+    use std::time::Duration;
 
     use super::*;
 
@@ -106,8 +59,14 @@ mod tests {
         let collection_name = env::var("MongoDbCollection").unwrap();
         let client = MConfigClient::create(connection_str, collection_name).await;
         let handler = client.get_handler::<String, _>("aaa").await;
-        let value = handler.get_value().await;
-        assert!(value.is_ok());
-        assert_eq!(value.unwrap().as_str(), "1111");
+        let (first_try, second_try) = tokio::join!(handler.get_value(),handler.get_value());
+        assert!(first_try.is_ok());
+        assert_eq!(first_try.unwrap().as_str(), "1111");
+        assert!(second_try.is_ok());
+        assert_eq!(second_try.unwrap().as_str(), "1111");
+        tokio::time::sleep(Duration::from_secs(20)).await;
+        let third_try = handler.get_value().await;
+        assert!(third_try.is_ok());
+        assert_eq!(third_try.unwrap().as_str(), "11111");
     }
 }
