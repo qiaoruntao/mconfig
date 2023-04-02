@@ -2,7 +2,10 @@
 name = "mconfig"
 version = "0.1.0"
 edition = "2021"
-
+license = "MIT"
+keywords = ["config", "mongodb"]
+description = "A lib for Rust to read config from MongoDb"
+repository = "https://github.com/qiaoruntao/mconfig"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
