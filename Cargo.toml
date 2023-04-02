@@ -1,0 +1,12 @@
+[package]
+name = "mconfig"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+serde = "1"
+serde_with = { version = "2", features = ["chrono"] }
+mongodb = { version = "2", features = ["bson-chrono-0_4", "bson-serde_with"] }
+tokio = { version = "1", features = ["signal"] }
