@@ -41,6 +41,19 @@ impl MConfigClient {
             collection: self.collection.clone_with_type(),
             value: Default::default(),
             watcher: Default::default(),
+            sender: None,
+        };
+        Arc::new(handler)
+    }
+
+    pub async fn get_handler_with_channel<V: Serialize + for<'de> Deserialize<'de>, S: AsRef<str>>(self, key: S, receiver_cnt: usize) -> Arc<MConfigHandler<V>> {
+        let (sender, _) = tokio::sync::broadcast::channel(receiver_cnt);
+        let handler = MConfigHandler {
+            key: key.as_ref().to_string(),
+            collection: self.collection.clone_with_type(),
+            value: Default::default(),
+            watcher: Default::default(),
+            sender: Some(sender),
         };
         Arc::new(handler)
     }
@@ -58,15 +71,25 @@ mod tests {
         let connection_str = env::var("MongoDbStr").unwrap();
         let collection_name = env::var("MongoDbCollection").unwrap();
         let client = MConfigClient::create(connection_str, collection_name).await;
-        let handler = client.get_handler::<String, _>("aaa").await;
+        let handler = client.get_handler_with_channel::<String, _>("aaa",10).await;
         let (first_try, second_try) = tokio::join!(handler.get_value(),handler.get_value());
         assert!(first_try.is_ok());
         assert_eq!(first_try.unwrap().as_str(), "1111");
         assert!(second_try.is_ok());
         assert_eq!(second_try.unwrap().as_str(), "1111");
+        tokio::spawn({
+            let handler = handler.clone();
+            async move {
+                let mut receiver = handler.create_new_receiver().await.unwrap();
+                let arc = receiver.recv().await.unwrap();
+                println!("{}", arc);
+            }
+        });
         tokio::time::sleep(Duration::from_secs(20)).await;
         let third_try = handler.get_value().await;
+
         assert!(third_try.is_ok());
         assert_eq!(third_try.unwrap().as_str(), "11111");
+        tokio::time::sleep(Duration::from_secs(1)).await;
     }
 }

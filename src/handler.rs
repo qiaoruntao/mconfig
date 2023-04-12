@@ -22,6 +22,7 @@ pub struct MConfigHandler<V> {
     pub(crate) collection: Collection<MConfigEntry<V>>,
     pub(crate) value: OnceCell<RwLock<Arc<V>>>,
     pub(crate) watcher: OnceCell<JoinHandle<()>>,
+    pub(crate) sender: Option<tokio::sync::broadcast::Sender<Arc<V>>>,
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
@@ -31,6 +32,7 @@ pub struct MConfigChangeResult<V> {
 
 
 impl<V: Clone + Send + Sync + Serialize + for<'de> Deserialize<'de> + Unpin + 'static> MConfigHandler<V> {
+    // get a copy of current config
     pub async fn get_value(self: &Arc<MConfigHandler<V>>) -> error::Result<Arc<V>> {
         let result = self.value.get_or_try_init(|| self.init()).await;
         match result {
@@ -42,6 +44,11 @@ impl<V: Clone + Send + Sync + Serialize + for<'de> Deserialize<'de> + Unpin + 's
                 Err(e)
             }
         }
+    }
+
+    // create a event receiver, can be used to run code when config is changed
+    pub async fn create_new_receiver(self: &Arc<MConfigHandler<V>>) -> Option<tokio::sync::broadcast::Receiver<Arc<V>>> {
+        self.sender.clone().map(|v| { v.subscribe() })
     }
 
     async fn init(self: &Arc<MConfigHandler<V>>) -> Result<RwLock<Arc<V>>, MConfigError> {
@@ -77,6 +84,7 @@ impl<V: Clone + Send + Sync + Serialize + for<'de> Deserialize<'de> + Unpin + 's
         }
     }
 
+    // keep watching current config in database, update config in memory of the one in database changed
     async fn watch(self: &Arc<MConfigHandler<V>>) -> bool {
         let pipeline = [
             doc! {
@@ -131,13 +139,16 @@ impl<V: Clone + Send + Sync + Serialize + for<'de> Deserialize<'de> + Unpin + 's
                 return;
             }
             Some(v) => {
-                v
+                Arc::new(v)
             }
         };
+        if let Some(sender) = &self.sender {
+            sender.send(value.clone());
+        }
         if let Some(lock) = self.value.get() {
-            *lock.write().await = Arc::new(value);
+            *lock.write().await = value;
         } else {
-            self.value.get_or_init(|| async { RwLock::new(Arc::new(value)) }).await;
+            self.value.get_or_init(|| async { RwLock::new(value) }).await;
         }
     }
 }
