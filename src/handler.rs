@@ -1,15 +1,16 @@
+use std::fmt::Debug;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tokio::sync::{OnceCell, RwLock};
 use std::time::Duration;
 use mongodb::bson::doc;
 use mongodb::options::{ChangeStreamOptions, FullDocumentType};
-use mongodb::change_stream::event::ChangeStreamEvent;
 use mongodb::Collection;
 use tokio::task::JoinHandle;
 use crate::error;
 use crate::error::MConfigError;
 use futures::StreamExt;
+use mongodb::change_stream::event::ChangeStreamEvent;
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct MConfigEntry<V> {
@@ -31,7 +32,7 @@ pub struct MConfigChangeResult<V> {
 }
 
 
-impl<V: Clone + Send + Sync + Serialize + for<'de> Deserialize<'de> + Unpin + 'static> MConfigHandler<V> {
+impl<V: Clone + Send + Sync + Serialize + for<'de> Deserialize<'de> + Unpin + 'static + Debug> MConfigHandler<V> {
     // get a copy of current config
     pub async fn get_value(self: &Arc<MConfigHandler<V>>) -> error::Result<Arc<V>> {
         let result = self.value.get_or_try_init(|| self.init()).await;
@@ -143,7 +144,7 @@ impl<V: Clone + Send + Sync + Serialize + for<'de> Deserialize<'de> + Unpin + 's
             }
         };
         if let Some(sender) = &self.sender {
-            sender.send(value.clone());
+            let _ = sender.send(value.clone());
         }
         if let Some(lock) = self.value.get() {
             *lock.write().await = value;
