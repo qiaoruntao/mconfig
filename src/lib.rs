@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use mongodb::{Client, Collection};
 use mongodb::bson::Bson;
-use mongodb::options::{ClientOptions, ResolverConfig};
+use mongodb::options::ClientOptions;
 use serde::Deserialize;
 use serde::Serialize;
 
@@ -17,11 +17,7 @@ pub struct MConfigClient {
 
 impl MConfigClient {
     pub async fn create<Conn: AsRef<str>, Name: AsRef<str>>(connection_str: Conn, collection_name: Name) -> Self {
-        let mut client_options = if cfg!(windows) && connection_str.as_ref().contains("+srv") {
-            ClientOptions::parse_with_resolver_config(connection_str, ResolverConfig::quad9()).await.unwrap()
-        } else {
-            ClientOptions::parse(connection_str).await.unwrap()
-        };
+        let mut client_options = ClientOptions::parse(connection_str.as_ref()).await.unwrap();
         let target_database = client_options.default_database.clone().unwrap();
         // Manually set an option.
         client_options.app_name = Some(collection_name.as_ref().to_string());
@@ -35,7 +31,7 @@ impl MConfigClient {
         }
     }
 
-    pub async fn get_handler<V: Serialize + for<'de> Deserialize<'de>, S: AsRef<str>>(&self, key: S) -> Arc<MConfigHandler<V>> {
+    pub async fn get_handler<V: Serialize + for<'de> Deserialize<'de> + Send + Sync, S: AsRef<str>>(&self, key: S) -> Arc<MConfigHandler<V>> {
         let handler = MConfigHandler {
             key: key.as_ref().to_string(),
             collection: self.collection.clone_with_type(),
@@ -46,7 +42,7 @@ impl MConfigClient {
         Arc::new(handler)
     }
 
-    pub async fn get_handler_with_channel<V: Serialize + for<'de> Deserialize<'de>, S: AsRef<str>>(&self, key: S, receiver_cnt: usize) -> Arc<MConfigHandler<V>> {
+    pub async fn get_handler_with_channel<V: Serialize + for<'de> Deserialize<'de> + Send + Sync, S: AsRef<str>>(&self, key: S, receiver_cnt: usize) -> Arc<MConfigHandler<V>> {
         let (sender, _) = tokio::sync::broadcast::channel(receiver_cnt);
         let handler = MConfigHandler {
             key: key.as_ref().to_string(),

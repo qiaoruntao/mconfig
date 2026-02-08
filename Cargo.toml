@@ -11,6 +11,6 @@ repository = "https://github.com/qiaoruntao/mconfig"
 [dependencies]
 serde = "1"
 serde_with = { version = "2", features = [] }
-mongodb = { version = "2", features = [] }
+mongodb = { version = "3", features = [] }
 tokio = { version = "1", features = [] }
 futures = "0"

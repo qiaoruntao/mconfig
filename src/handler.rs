@@ -4,7 +4,7 @@ use std::sync::Arc;
 use tokio::sync::{OnceCell, RwLock};
 use std::time::Duration;
 use mongodb::bson::doc;
-use mongodb::options::{ChangeStreamOptions, FullDocumentType};
+use mongodb::options::FullDocumentType;
 use mongodb::Collection;
 use tokio::task::JoinHandle;
 use crate::error;
@@ -18,7 +18,7 @@ pub struct MConfigEntry<V> {
     value: V,
 }
 
-pub struct MConfigHandler<V> {
+pub struct MConfigHandler<V: Send + Sync> {
     pub(crate) key: String,
     pub(crate) collection: Collection<MConfigEntry<V>>,
     pub(crate) value: OnceCell<RwLock<Arc<V>>>,
@@ -72,7 +72,7 @@ impl<V: Clone + Send + Sync + Serialize + for<'de> Deserialize<'de> + Unpin + 's
     }
 
     async fn fetch_value(self: &Arc<MConfigHandler<V>>) -> Result<V, MConfigError> {
-        match self.collection.find_one(doc! {"key":self.key.clone()}, None).await {
+        match self.collection.find_one(doc! {"key":self.key.clone()}).await {
             Ok(Some(task)) => {
                 Ok(task.value)
             }
@@ -105,9 +105,12 @@ impl<V: Clone + Send + Sync + Serialize + for<'de> Deserialize<'de> + Unpin + 's
             }
         ];
         let collection = self.collection.clone_with_type::<MConfigChangeResult<V>>();
-        let mut change_stream_options = ChangeStreamOptions::default();
-        change_stream_options.full_document = Some(FullDocumentType::UpdateLookup);
-        let mut change_stream = match collection.watch(pipeline, Some(change_stream_options)).await {
+        let mut change_stream = match collection
+            .watch()
+            .pipeline(pipeline)
+            .full_document(FullDocumentType::UpdateLookup)
+            .await
+        {
             Ok(value) => { value }
             Err(_) => {
                 return true;
@@ -154,7 +157,7 @@ impl<V: Clone + Send + Sync + Serialize + for<'de> Deserialize<'de> + Unpin + 's
     }
 }
 
-impl<V> Drop for MConfigHandler<V> {
+impl<V: Send + Sync> Drop for MConfigHandler<V> {
     fn drop(&mut self) {
         if let Some(handler) = self.watcher.get() {
             handler.abort();
